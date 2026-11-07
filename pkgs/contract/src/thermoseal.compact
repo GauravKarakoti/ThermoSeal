@@ -1,0 +1,366 @@
+pragma language_version >= 0.19 && <= 0.26;
+
+import CompactStandardLibrary;
+
+// ---------------------------------------------------------------------------
+// Range helper
+// ---------------------------------------------------------------------------
+export pure circuit in_range(reading: Uint<16>, min: Uint<16>, max: Uint<16>): Boolean {
+  assert(reading >= min, "Reading below minimum bound");
+  assert(reading <= max, "Reading above maximum bound");
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Data Types — exported so TypeScript receives generated type definitions
+// ---------------------------------------------------------------------------
+
+export struct Bounds {
+  min: Uint<16>;
+  max: Uint<16>;
+}
+
+export struct Shipment {
+  stream_roots:    Vector<3, Bytes<32>>;   // Merkle root per stream (temp, humidity, shock)
+  stream_bounds:   Vector<3, Bounds>;      // contractual bounds — PUBLIC contract terms
+  chunk_counts:    Vector<3, Uint<16>>;    // number of 128-reading chunks per stream (max 2)
+  device_key_hash: Bytes<32>;              // hash of registered device pubkey
+  leg_count:       Uint<8>;
+  legs_compliant:  Vector<8, Boolean>;     // per-leg compliance flag, set by finalize_leg
+  finalized_legs:  Uint<8>;                // how many legs have been finalized
+}
+
+export struct ChunkRecord {
+  commitment: Bytes<32>;   // hash of (shipment_id, leg_index, stream_index, chunk_index, root)
+  passed:     Boolean;
+  submitted:  Boolean;
+}
+
+export struct Grant {
+  scope_hash:          Bytes<32>;   // commitment to scope preimage — scope stays private
+  auditor_pubkey_hash: Bytes<32>;
+  expiry_epoch:        Uint<64>;
+  exercised:           Boolean;
+}
+
+export struct Disclosure {
+  grant_id:     Bytes<32>;
+  disclosed_at: Uint<64>;
+}
+
+// ---------------------------------------------------------------------------
+// Public ledger — everything a verifier can read without permission.
+// ---------------------------------------------------------------------------
+
+export ledger shipments:      Map<Bytes<32>, Shipment>;
+export ledger leg_nullifiers: Set<Bytes<32>>;
+export ledger chunk_records:  Map<Bytes<32>, ChunkRecord>;  // key = chunk_key(...)
+export ledger auditor_grants: Map<Bytes<32>, Grant>;        // key = grant_id
+export ledger disclosure_log: Map<Bytes<32>, Disclosure>;   // key = grant_id
+
+// ---------------------------------------------------------------------------
+// Private inputs — supplied by the prover at circuit invocation time.
+// None of this leaves the prover's device; `disclose()` is the only way out.
+// ---------------------------------------------------------------------------
+
+witness get_shipment_id():    Bytes<32>;
+witness get_device_pubkey():  Bytes<32>;
+witness get_readings():       Vector<128, Uint<16>>;             // one chunk = 128 readings
+witness get_salts():          Vector<128, Bytes<16>>;
+witness get_merkle_paths():   Vector<128, Vector<8, Bytes<32>>>; // depth 8 path
+witness get_scope_preimage(): Bytes<64>;                         // preimage of scope_hash
+witness get_current_epoch():  Uint<64>;
+
+// ---------------------------------------------------------------------------
+// Pure Helpers & Safe Dynamic Vector Accessors
+// ---------------------------------------------------------------------------
+
+pure circuit get_chunk_count(counts: Vector<3, Uint<16>>, index: Uint<8>): Uint<16> {
+  if (index == 0) {
+    return counts[0];
+  } else if (index == 1) {
+    return counts[1];
+  } else {
+    return counts[2];
+  }
+}
+
+pure circuit get_bounds(bounds: Vector<3, Bounds>, index: Uint<8>): Bounds {
+  if (index == 0) {
+    return bounds[0];
+  } else if (index == 1) {
+    return bounds[1];
+  } else {
+    return bounds[2];
+  }
+}
+
+pure circuit get_root(roots: Vector<3, Bytes<32>>, index: Uint<8>): Bytes<32> {
+  if (index == 0) {
+    return roots[0];
+  } else if (index == 1) {
+    return roots[1];
+  } else {
+    return roots[2];
+  }
+}
+
+// Deterministic nullifier key. Binds shipment + leg + device so that a different
+// device cannot front-run a leg by submitting its own proof first.
+export pure circuit nullifier_of(
+  shipment_id:   Bytes<32>,
+  leg_index:     Uint<8>,
+  device_pubkey: Bytes<32>
+): Bytes<32> {
+  const leg_bytes = (leg_index as Field) as Bytes<32>;
+  return persistentHash<Vector<3, Bytes<32>>>([shipment_id, leg_bytes, device_pubkey]);
+}
+
+// Deterministic chunk lookup key. Includes stream so the same chunk_index across
+// streams does not collide.
+export pure circuit chunk_key(
+  shipment_id:  Bytes<32>,
+  leg_index:    Uint<8>,
+  stream_index: Uint<8>,
+  chunk_index:  Uint<16>
+): Bytes<32> {
+  const leg_bytes    = (leg_index as Field) as Bytes<32>;
+  const stream_bytes = (stream_index as Field) as Bytes<32>;
+  const chunk_bytes  = (chunk_index as Field) as Bytes<32>;
+  return persistentHash<Vector<4, Bytes<32>>>([
+    shipment_id,
+    leg_bytes,
+    stream_bytes,
+    chunk_bytes
+  ]);
+}
+
+// Leaf commitment: salted hash of one reading.
+pure circuit leaf_commit(reading: Uint<16>, salt: Bytes<16>): Bytes<32> {
+  const reading_bytes = (reading as Field) as Bytes<32>;
+  const salt_bytes    = (salt as Field) as Bytes<32>;
+  return persistentHash<Vector<2, Bytes<32>>>([reading_bytes, salt_bytes]);
+}
+
+// Single step of a Merkle path fold.
+pure circuit merkle_step(acc: Bytes<32>, sibling: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([acc, sibling]);
+}
+
+// Verify a leaf is in a Merkle tree via the supplied path using `fold`.
+pure circuit verify_merkle(
+  path: Vector<8, Bytes<32>>,
+  leaf: Bytes<32>,
+  root: Bytes<32>
+): Boolean {
+  const computed_root = fold(merkle_step, leaf, path);
+  return computed_root == root;
+}
+
+// ---------------------------------------------------------------------------
+// Circuits — the actual protocol
+// ---------------------------------------------------------------------------
+
+// Registration establishes the shipment on the public ledger.
+export circuit register_shipment(
+  shipment_id:     Bytes<32>,
+  stream_roots:    Vector<3, Bytes<32>>,
+  stream_bounds:   Vector<3, Bounds>,
+  chunk_counts:    Vector<3, Uint<16>>,
+  device_key_hash: Bytes<32>,
+  leg_count:       Uint<8>
+): [] {
+  const pub_id = disclose(shipment_id);
+  assert(!shipments.member(pub_id), "Shipment already registered");
+  assert(leg_count > 0,             "Leg count must be greater than 0");
+  assert(leg_count <= 8,            "Leg count cannot exceed 8");
+
+  const zero_flags: Vector<8, Boolean> = [
+    false, false, false, false, false, false, false, false
+  ];
+
+  const shipment = Shipment {
+    stream_roots:    disclose(stream_roots),
+    stream_bounds:   disclose(stream_bounds),
+    chunk_counts:    disclose(chunk_counts),
+    device_key_hash: disclose(device_key_hash),
+    leg_count:       disclose(leg_count),
+    legs_compliant:  zero_flags,
+    finalized_legs:  0
+  };
+
+  shipments.insert(pub_id, shipment);
+}
+
+// Submit one chunk (128 readings) of one stream within one leg.
+export circuit submit_chunk(
+  leg_index:    Uint<8>,
+  stream_index: Uint<8>,
+  chunk_index:  Uint<16>
+): [] {
+  const pub_id     = disclose(get_shipment_id());
+  const pub_leg    = disclose(leg_index);
+  const pub_stream = disclose(stream_index);
+  const pub_chunk  = disclose(chunk_index);
+
+  assert(shipments.member(pub_id), "Shipment not found");
+  const shipment = shipments.lookup(pub_id);
+
+  assert(pub_stream < 3, "Invalid stream index");
+  const max_chunks = get_chunk_count(shipment.chunk_counts, pub_stream);
+  assert(pub_chunk < max_chunks, "Chunk index out of bounds");
+  assert(pub_leg < shipment.leg_count, "Leg index out of bounds");
+
+  const bounds   = get_bounds(shipment.stream_bounds, pub_stream);
+  const root     = get_root(shipment.stream_roots, pub_stream);
+  const readings = get_readings();
+  const salts    = get_salts();
+  const paths    = get_merkle_paths();
+
+  // Range-check all 128 readings in the chunk (lightweight arithmetic constraints)
+  for (const i of 0..128) {
+    assert(
+      in_range(readings[i], bounds.min, bounds.max),
+      "Reading out of contractual bounds"
+    );
+  }
+
+  // Verify Merkle inclusion against the stream root for the chunk anchor leaf
+  const anchor_leaf = leaf_commit(readings[0], salts[0]);
+  assert(
+    verify_merkle(paths[0], anchor_leaf, root),
+    "Merkle path verification failed"
+  );
+
+  const leg_bytes    = (pub_leg as Field) as Bytes<32>;
+  const stream_bytes = (pub_stream as Field) as Bytes<32>;
+  const chunk_bytes  = (pub_chunk as Field) as Bytes<32>;
+
+  const commitment = persistentHash<Vector<5, Bytes<32>>>([
+    pub_id,
+    leg_bytes,
+    stream_bytes,
+    chunk_bytes,
+    root
+  ]);
+
+  const key = chunk_key(pub_id, pub_leg, pub_stream, pub_chunk);
+  assert(!chunk_records.member(key), "Chunk already submitted");
+
+  chunk_records.insert(key, ChunkRecord {
+    commitment: commitment,
+    passed:     true,
+    submitted:  true
+  });
+}
+
+// Finalize a leg: verify all chunks submitted and all passed, then set the
+// per-leg flag and consume the nullifier.
+export circuit finalize_leg(leg_index: Uint<8>): [] {
+  const pub_id     = disclose(get_shipment_id());
+  const pub_leg    = disclose(leg_index);
+  const pub_device = disclose(get_device_pubkey());
+
+  assert(shipments.member(pub_id),     "Shipment not found");
+  const shipment = shipments.lookup(pub_id);
+  assert(pub_leg < shipment.leg_count, "Leg index out of bounds");
+
+  // Verify the device public key matches the registered shipment device
+  const device_hash = persistentHash<Bytes<32>>(pub_device);
+  assert(device_hash == shipment.device_key_hash, "Device pubkey mismatch");
+
+  // Replay protection: nullifier is bound to device pubkey.
+  const n = disclose(nullifier_of(pub_id, pub_leg, pub_device));
+  assert(!leg_nullifiers.member(n), "Leg already finalized");
+
+  for (const s of 0..3) {
+    const chunk_count = shipment.chunk_counts[s];
+    assert(chunk_count <= 2, "Chunk count exceeds circuit bound of 2");
+
+    for (const c of 0..2) {
+      if (c < chunk_count) {
+        const key = chunk_key(pub_id, pub_leg, s as Uint<8>, c as Uint<16>);
+        assert(chunk_records.member(key), "Missing chunk record");
+        const rec = chunk_records.lookup(key);
+        assert(rec.submitted, "Chunk not marked submitted");
+        assert(rec.passed,    "Chunk did not pass compliance checks");
+      }
+    }
+  }
+
+  leg_nullifiers.insert(n);
+
+  const updated_legs: Vector<8, Boolean> = [
+    pub_leg == 0 ? true : shipment.legs_compliant[0],
+    pub_leg == 1 ? true : shipment.legs_compliant[1],
+    pub_leg == 2 ? true : shipment.legs_compliant[2],
+    pub_leg == 3 ? true : shipment.legs_compliant[3],
+    pub_leg == 4 ? true : shipment.legs_compliant[4],
+    pub_leg == 5 ? true : shipment.legs_compliant[5],
+    pub_leg == 6 ? true : shipment.legs_compliant[6],
+    pub_leg == 7 ? true : shipment.legs_compliant[7]
+  ];
+
+  shipments.insert(pub_id, Shipment {
+    stream_roots:    shipment.stream_roots,
+    stream_bounds:   shipment.stream_bounds,
+    chunk_counts:    shipment.chunk_counts,
+    device_key_hash: shipment.device_key_hash,
+    leg_count:       shipment.leg_count,
+    legs_compliant:  updated_legs,
+    finalized_legs:  (shipment.finalized_legs + 1) as Uint<8>
+  });
+}
+
+// Authorize a scoped auditor. Only the scope hash goes public; the preimage
+// stays with the shipper.
+export circuit authorize_auditor(
+  grant_id:            Bytes<32>,
+  scope_hash:          Bytes<32>,
+  auditor_pubkey_hash: Bytes<32>,
+  expiry_epoch:        Uint<64>
+): [] {
+  const pub_grant_id = disclose(grant_id);
+  const pub_scope    = disclose(scope_hash);
+
+  assert(!auditor_grants.member(pub_grant_id), "Grant ID already exists");
+
+  const preimage = get_scope_preimage();
+  const computed_scope = persistentHash<Bytes<64>>(preimage);
+  assert(
+    disclose(computed_scope == pub_scope),
+    "Scope preimage does not match scope_hash"
+  );
+
+  auditor_grants.insert(pub_grant_id, Grant {
+    scope_hash:          pub_scope,
+    auditor_pubkey_hash: disclose(auditor_pubkey_hash),
+    expiry_epoch:        disclose(expiry_epoch),
+    exercised:           false
+  });
+}
+
+// Record that a grant was exercised. Discloses only that disclosure happened,
+// not what was disclosed.
+export circuit record_disclosure(grant_id: Bytes<32>): [] {
+  const pub_grant_id = disclose(grant_id);
+  assert(auditor_grants.member(pub_grant_id), "Grant not found");
+
+  const grant = auditor_grants.lookup(pub_grant_id);
+  assert(!grant.exercised, "Grant has already been exercised");
+
+  const current_epoch = disclose(get_current_epoch());
+  assert(current_epoch <= grant.expiry_epoch, "Grant has expired");
+
+  auditor_grants.insert(pub_grant_id, Grant {
+    scope_hash:          grant.scope_hash,
+    auditor_pubkey_hash: grant.auditor_pubkey_hash,
+    expiry_epoch:        grant.expiry_epoch,
+    exercised:           true
+  });
+
+  disclosure_log.insert(pub_grant_id, Disclosure {
+    grant_id:     pub_grant_id,
+    disclosed_at: current_epoch
+  });
+}
