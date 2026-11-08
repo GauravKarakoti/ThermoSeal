@@ -55,18 +55,18 @@ import {
   ThermoSeal,
   type ThermoSealPrivateState,
   thermosealWitnesses,
+  ThermoSealPrivateStateId,
 } from "contract";
 import type { Logger } from "pino";
 import * as Rx from "rxjs";
-import {
+import shared, {
   type Bounds,
   type DeployedThermoSealContract,
-  faucetUrlFor,
   type ThermoSealCircuits,
   type ThermoSealLedgerState,
-  ThermoSealPrivateStateId,
   type ThermoSealProviders,
 } from "shared";
+const { faucetUrlFor } = shared as any;
 import { WebSocket } from "ws";
 import { type Config, currentDir } from "./config";
 import { DIVIDER } from "./constants";

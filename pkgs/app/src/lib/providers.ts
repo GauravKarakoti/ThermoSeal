@@ -26,6 +26,9 @@ import type {
   ThermoSealProviders,
 } from "./thermoseal-types";
 import { ThermoSealPrivateStateId } from "./thermoseal-types";
+import {
+  setNetworkId,
+} from "@midnight-ntwrk/midnight-js-network-id";
 
 function parsePublicKeyToString(key: unknown): string {
   if (typeof key === "string") return key;
@@ -40,6 +43,10 @@ export function createThermoSealProviders(
   connection: WalletConnectionResult,
   networkId: NetworkId,
 ): ThermoSealProviders {
+  // Normalize networkId (e.g. "preview", "preprod", "undeployed") and set it globally in WASM
+  const normalizedNetworkId = String(networkId).toLowerCase() as NetworkId;
+  setNetworkId(normalizedNetworkId);
+
   const { wallet, uris, state } = connection;
   const walletRaw = wallet as unknown as Record<string, unknown>;
 
@@ -130,6 +137,7 @@ export function createThermoSealProviders(
               km: KeyMaterialProvider,
             ) => Promise<ProvingProvider>
           )(keyMaterial);
+          console.log("[ThermoSeal] Proving via 1AM Wallet ProvingProvider");
           return await createProofProvider(provingProvider).proveTx(
             unprovenTx,
             proveTxConfig,
@@ -141,6 +149,7 @@ export function createThermoSealProviders(
           );
         }
       }
+      console.log("[ThermoSeal] Proving via HTTP prover:", proverServerUri);
       return fallbackHttpProver.proveTx(unprovenTx, proveTxConfig);
     },
   };

@@ -15,8 +15,10 @@
 
 import path from "node:path";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
-import { DEFAULT_PROOF_SERVER_URL, MIDNIGHT_NETWORK_ENDPOINTS } from "shared";
-export const currentDir = path.resolve(new URL(import.meta.url).pathname, "..");
+import shared from "shared";
+const { DEFAULT_PROOF_SERVER_URL, MIDNIGHT_NETWORK_ENDPOINTS } = shared as any;
+import { fileURLToPath } from "node:url";
+export const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export interface Config {
   readonly logDir: string;

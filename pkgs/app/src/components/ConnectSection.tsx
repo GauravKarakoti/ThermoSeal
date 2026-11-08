@@ -19,7 +19,7 @@ export function ConnectSection() {
           role="img"
           aria-label={t("aria.midnightLogo")}
         >
-          🛡️
+          <img src="/logo.png" alt={t("aria.midnightLogo")} className="h-30 w-30" />
         </span>
       </div>
 
