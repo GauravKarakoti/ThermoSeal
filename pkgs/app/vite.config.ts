@@ -308,6 +308,8 @@ export default defineConfig({
             /node_modules\/object-inspect/,
             /node_modules\/cross-fetch/,
             /node_modules\/fetch-retry/,
+            /node_modules\/buffer/,
+            /node_modules\/@subsquid\/scale-codec/,
           ],
           transformMixedEsModules: true,
         }),
