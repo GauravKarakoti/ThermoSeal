@@ -46,6 +46,7 @@
         "react-dom": "^19.2.5",
         "react-i18next": "^17.0.4",
         "react-router-dom": "^7.18.5",
+        "rollup-plugin-node-polyfills": "^0.2.1",
         "rxjs": "^7.8.2",
         "semver": "^7.7.4",
         "shadcn": "^4.4.0",
@@ -1905,6 +1906,12 @@
 
     "rollup": ["rollup@4.68.0", "", { "dependencies": { "@types/estree": "^1.0.10" }, "optionalDependencies": { "@rollup/rollup-android-arm-eabi": "4.68.0", "@rollup/rollup-android-arm64": "4.68.0", "@rollup/rollup-android-x64": "4.68.0", "@rollup/rollup-darwin-arm64": "4.68.0", "@rollup/rollup-darwin-x64": "4.68.0", "@rollup/rollup-freebsd-arm64": "4.68.0", "@rollup/rollup-freebsd-x64": "4.68.0", "@rollup/rollup-linux-arm-gnueabihf": "4.68.0", "@rollup/rollup-linux-arm-musleabihf": "4.68.0", "@rollup/rollup-linux-arm64-gnu": "4.68.0", "@rollup/rollup-linux-arm64-musl": "4.68.0", "@rollup/rollup-linux-loong64-gnu": "4.68.0", "@rollup/rollup-linux-loong64-musl": "4.68.0", "@rollup/rollup-linux-ppc64-gnu": "4.68.0", "@rollup/rollup-linux-ppc64-musl": "4.68.0", "@rollup/rollup-linux-riscv64-gnu": "4.68.0", "@rollup/rollup-linux-riscv64-musl": "4.68.0", "@rollup/rollup-linux-s390x-gnu": "4.68.0", "@rollup/rollup-linux-x64-gnu": "4.68.0", "@rollup/rollup-linux-x64-musl": "4.68.0", "@rollup/rollup-openbsd-x64": "4.68.0", "@rollup/rollup-openharmony-arm64": "4.68.0", "@rollup/rollup-win32-arm64-msvc": "4.68.0", "@rollup/rollup-win32-ia32-msvc": "4.68.0", "@rollup/rollup-win32-x64-gnu": "4.68.0", "@rollup/rollup-win32-x64-msvc": "4.68.0", "fsevents": "~2.3.2" }, "bin": { "rollup": "dist/bin/rollup" } }, "sha512-BIHWnc1Qjdy+WLfOdcSd67sxO4iW6pTnhdZosg+7ywSaiMWxxzKldkkNpUJqeXYAiJzyB14P2cIjqC6tlb6xzw=="],
 
+    "rollup-plugin-inject": ["rollup-plugin-inject@3.0.2", "", { "dependencies": { "estree-walker": "^0.6.1", "magic-string": "^0.25.3", "rollup-pluginutils": "^2.8.1" } }, "sha512-ptg9PQwzs3orn4jkgXJ74bfs5vYz1NCZlSQMBUA0wKcGp5i5pA1AO3fOUEte8enhGUC+iapTCzEWw2jEFFUO/w=="],
+
+    "rollup-plugin-node-polyfills": ["rollup-plugin-node-polyfills@0.2.1", "", { "dependencies": { "rollup-plugin-inject": "^3.0.0" } }, "sha512-4kCrKPTJ6sK4/gLL/U5QzVT8cxJcofO0OU74tnB19F40cmuAKSzH5/siithxlofFEjwvw1YAhPmbvGNA6jEroA=="],
+
+    "rollup-pluginutils": ["rollup-pluginutils@2.8.2", "", { "dependencies": { "estree-walker": "^0.6.1" } }, "sha512-EEp9NhnUkwY8aif6bxgovPHMoMoNr2FulJziTndpt5H9RdwC47GSGuII9XxpSdzVGM0GWrNPHV6ie1LTNJPaLQ=="],
+
     "run-applescript": ["run-applescript@7.1.0", "", {}, "sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q=="],
 
     "run-parallel": ["run-parallel@1.2.0", "", { "dependencies": { "queue-microtask": "^1.2.2" } }, "sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA=="],
@@ -1976,6 +1983,8 @@
     "source-map": ["source-map@0.6.1", "", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
 
     "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
+
+    "sourcemap-codec": ["sourcemap-codec@1.4.8", "", {}, "sha512-9NykojV5Uih4lgo5So5dtw+f0JgJX30KCNI8gwhz2J9A15wD0Ml6tjHKwf6fTSa6fAdVBdZeNOs9eJ71qCk8vA=="],
 
     "split-ca": ["split-ca@1.0.1", "", {}, "sha512-Q5thBSxp5t8WPTTJQS59LrGqOZqOsrhDGDVm8azCqIBjSBd7nd9o2PM+mDulQQkh8h//4U6hFZnc/mul8t5pWQ=="],
 
@@ -2382,6 +2391,12 @@
     "ripemd160/hash-base": ["hash-base@3.1.2", "", { "dependencies": { "inherits": "^2.0.4", "readable-stream": "^2.3.8", "safe-buffer": "^5.2.1", "to-buffer": "^1.2.1" } }, "sha512-Bb33KbowVTIj5s7Ked1OsqHUeCpz//tPwR+E2zJgJKo9Z5XolZ9b6bdUgjmYlwnWhoOQKoTd1TYToZGn5mAYOg=="],
 
     "rolldown/@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
+
+    "rollup-plugin-inject/estree-walker": ["estree-walker@0.6.1", "", {}, "sha512-SqmZANLWS0mnatqbSfRP5g8OXZC12Fgg1IwNtLsyHDzJizORW4khDfjPqJZsemPWBB2uqykUah5YpQ6epsqC/w=="],
+
+    "rollup-plugin-inject/magic-string": ["magic-string@0.25.9", "", { "dependencies": { "sourcemap-codec": "^1.4.8" } }, "sha512-RmF0AsMzgt25qzqqLc1+MbHmhdx0ojF2Fvs4XnOqz2ZOBXzzkEwc/dJQZCYHAn7v1jbVOjAZfK8msRn4BxO4VQ=="],
+
+    "rollup-pluginutils/estree-walker": ["estree-walker@0.6.1", "", {}, "sha512-SqmZANLWS0mnatqbSfRP5g8OXZC12Fgg1IwNtLsyHDzJizORW4khDfjPqJZsemPWBB2uqykUah5YpQ6epsqC/w=="],
 
     "send/debug": ["debug@2.6.9", "", { "dependencies": { "ms": "2.0.0" } }, "sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA=="],
 

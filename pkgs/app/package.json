@@ -43,6 +43,7 @@
     "react-dom": "^19.2.5",
     "react-i18next": "^17.0.4",
     "react-router-dom": "^7.18.5",
+    "rollup-plugin-node-polyfills": "^0.2.1",
     "rxjs": "^7.8.2",
     "semver": "^7.7.4",
     "shadcn": "^4.4.0",

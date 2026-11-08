@@ -1,8 +1,8 @@
-import inject from "@rollup/plugin-inject";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "fs";
 import { createRequire } from "module";
+import nodePolyfills from "rollup-plugin-node-polyfills";
 import stdLibBrowser from "node-stdlib-browser";
 import path from "path";
 import { defineConfig, type Plugin } from "vite";
@@ -27,50 +27,8 @@ const onchainRuntimeBrowserPath = fs.existsSync(_candidateOnchainPath)
       "../../node_modules/@midnight-ntwrk/onchain-runtime-v3/midnight_onchain_runtime_wasm.js",
     );
 
-// `util`/`assert` aren't direct dependencies of this package (only
-// node-stdlib-browser's), and they share their names with Node.js core
-// modules, so they can't be resolved via `_require.resolve` from here — read
-// the paths node-stdlib-browser itself already resolved for its polyfills.
-const utilPkgDir = stdLibBrowser.util as unknown as string;
-const assertPkgDir = stdLibBrowser.assert as unknown as string;
-// @midnight-ntwrk/midnight-js-utils IS a direct dependency, but its package.json
-// "exports" map doesn't expose "./package.json", so resolve its main entry file
-// directly instead of walking up from the package root.
-const midnightJsUtilsCjsEntry = _require.resolve(
-  "@midnight-ntwrk/midnight-js-utils",
-);
-const cryptoPkgDir = stdLibBrowser.crypto as unknown as string;
-// crypto-browserify's own legacy CJS dependency tree (cipher-base, hash-base,
-// randombytes, asn1.js, ...) references bare Node builtin specifiers like
-// `stream`/`vm`/`util` that esbuild's `platform: "browser"` resolver refuses
-// to resolve on its own (it has no knowledge of Vite's `resolve.alias`).
-// Reuse the same polyfill directories node-stdlib-browser already resolved so
-// esbuild can fully inline the whole tree as one clean ESM unit.
-const nodeBuiltinAliasesForEsbuild = Object.fromEntries(
-  Object.entries(stdLibBrowser).filter(([find]) => !find.startsWith("node:")),
-) as Record<string, string>;
-const pathPkgDir = stdLibBrowser.path as unknown as string;
-// semver IS a direct dependency (used in wallet.ts for Lace connector API
-// version checks); resolve the exact copy this package's own imports use.
-const semverEntry = _require.resolve("semver");
-
-// NOTE: reactEsmShimPlugin was removed. Vite's needsInterop mechanism handles
-// React CJS→ESM named export interop natively. All React packages have
-// needsInterop:true which makes Vite generate proxy modules with named exports.
-// The shim created a second React instance causing "Invalid hook call".
-// NOTE: compactRuntimeEsmShimPlugin was removed. compact-runtime@0.15.0 is pure
-// ESM and no longer requires a CJS→ESM shim. WASM loading is handled by
-// vite-plugin-wasm and optimizeDeps.exclude.
-/**
- * Virtual ESM shim for @midnight-ntwrk/onchain-runtime-v3.
- *
- * onchain-runtime-v3 uses top-level await for WASM initialization which
- * esbuild cannot handle. This plugin redirects the import to the explicit
- * browser WASM entry point, bypassing the Node.js conditional export.
- */
 function onchainRuntimeV3ShimPlugin(onchainRuntimePath: string): Plugin {
   const ONCHAIN_RUNTIME_V3_ID = "@midnight-ntwrk/onchain-runtime-v3";
-
   return {
     name: "onchain-runtime-v3-shim",
     enforce: "pre",
@@ -83,433 +41,49 @@ function onchainRuntimeV3ShimPlugin(onchainRuntimePath: string): Plugin {
 }
 
 /**
- * Production-only React ESM shim.
- *
- * In dev mode, Vite pre-bundles React via esbuild with needsInterop:true, which
- * generates named-export proxy modules automatically — no shim needed.
- * In production (Rollup), React's index.js has a conditional require() that
- * Rollup's commonjs plugin cannot statically analyse for named exports.
- * This plugin (apply:'build') intercepts all React imports and inlines the CJS
- * production files as IIFEs, providing explicit named ESM exports.
+ * Robust CJS-to-ESM Wrapper Plugin for Production Build
+ * Intercepts any module containing bare `exports.` or `module.exports`
+ * and wraps it safely so Rollup never throws "ReferenceError: exports is not defined".
  */
-function reactBuildShimPlugin(): Plugin {
-  const rDir = path.dirname(_require.resolve("react/package.json"));
-  const rdDir = path.dirname(_require.resolve("react-dom/package.json"));
-  // scheduler is a peer dep of react-dom; resolve from react-dom's scope
-  const rdRequire = createRequire(path.join(rdDir, "package.json"));
-  const schedDir = path.dirname(rdRequire.resolve("scheduler/package.json"));
-  // use-sync-external-store is used by react-i18next; resolve from its scope
-  const rI18nDir = path.dirname(_require.resolve("react-i18next/package.json"));
-  const rI18nRequire = createRequire(path.join(rI18nDir, "package.json"));
-  const usseDir = path.dirname(
-    rI18nRequire.resolve("use-sync-external-store/package.json"),
-  );
-
-  const REACT_ID = "\0virtual:react-build";
-  const REACT_DOM_ID = "\0virtual:react-dom-build";
-  const REACT_DOM_CLIENT_ID = "\0virtual:react-dom-client-build";
-  const JSX_RUNTIME_ID = "\0virtual:jsx-runtime-build";
-  const JSX_DEV_RUNTIME_ID = "\0virtual:jsx-dev-runtime-build";
-  const USSE_SHIM_ID = "\0virtual:use-sync-external-store-shim-build";
-
+function safeCjsWrapperPlugin(): Plugin {
   return {
-    name: "react-build-shim",
-    apply: "build",
-    enforce: "pre",
-    resolveId(id) {
-      if (id === "react") return REACT_ID;
-      if (id === "react-dom") return REACT_DOM_ID;
-      if (id === "react-dom/client") return REACT_DOM_CLIENT_ID;
-      if (id === "react/jsx-runtime") return JSX_RUNTIME_ID;
-      if (id === "react/jsx-dev-runtime") return JSX_DEV_RUNTIME_ID;
-      if (id === "use-sync-external-store/shim") return USSE_SHIM_ID;
-    },
-    load(id) {
-      if (id === REACT_ID) {
-        const cjsCode = fs.readFileSync(
-          path.join(rDir, "cjs/react.production.js"),
-          "utf-8",
-        );
+    name: "safe-cjs-wrapper",
+    transform(code, id) {
+      if (
+        (id.includes("node_modules") || id.includes("pkgs/")) &&
+        (code.includes("exports.") || code.includes("module.exports")) &&
+        !code.includes("export default") &&
+        !code.includes("export const")
+      ) {
         return `
-var _r = {};
-(function(exports) {
-${cjsCode}
-})(_r);
-export const {
-  Activity, Children, Component, Fragment, Profiler, PureComponent,
-  StrictMode, Suspense,
-  __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,
-  __COMPILER_RUNTIME,
-  cache, cacheSignal, cloneElement, createContext, createElement, createRef,
-  forwardRef, isValidElement, lazy, memo, startTransition,
-  unstable_useCacheRefresh, use, useActionState, useCallback, useContext,
-  useDebugValue, useDeferredValue, useEffect, useEffectEvent, useId,
-  useImperativeHandle, useInsertionEffect, useLayoutEffect, useMemo,
-  useOptimistic, useReducer, useRef, useState, useSyncExternalStore,
-  useTransition, version,
-} = _r;
-export default _r;
-`;
+          var module = { exports: {} };
+          var exports = module.exports;
+          (function(module, exports) {
+            ${code}
+          })(module, module.exports);
+          export default module.exports;
+          export const { ${
+            [...code.matchAll(/exports\.([a-zA-Z0-9_$]+)\s*=/g)]
+              .map((m) => m[1])
+              .filter((v, i, a) => a.indexOf(v) === i)
+              .join(", ")
+          } } = module.exports;
+        `;
       }
-      if (id === REACT_DOM_ID) {
-        const cjsCode = fs.readFileSync(
-          path.join(rdDir, "cjs/react-dom.production.js"),
-          "utf-8",
-        );
-        return `
-import _react from "react";
-var _rd = {};
-(function(exports, require) {
-${cjsCode}
-})(_rd, function(id) {
-  if (id === "react") return _react;
-  throw new Error("[react-dom-build-shim] Unknown module: " + id);
-});
-export const {
-  __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,
-  createPortal, flushSync, preconnect, prefetchDNS, preinit, preinitModule,
-  preload, preloadModule, requestFormReset, unstable_batchedUpdates,
-  useFormState, useFormStatus, version,
-} = _rd;
-export default _rd;
-`;
-      }
-      if (id === REACT_DOM_CLIENT_ID) {
-        const schedCode = fs.readFileSync(
-          path.join(schedDir, "cjs/scheduler.production.js"),
-          "utf-8",
-        );
-        const cjsCode = fs.readFileSync(
-          path.join(rdDir, "cjs/react-dom-client.production.js"),
-          "utf-8",
-        );
-        return `
-import _react from "react";
-import _rd from "react-dom";
-var _sched = {};
-(function(exports) {
-${schedCode}
-})(_sched);
-var _rdc = {};
-(function(exports, require) {
-${cjsCode}
-})(_rdc, function(id) {
-  if (id === "react") return _react;
-  if (id === "react-dom") return _rd;
-  if (id === "scheduler") return _sched;
-  throw new Error("[react-dom-client-build-shim] Unknown module: " + id);
-});
-export const { createRoot, hydrateRoot } = _rdc;
-export default _rdc;
-`;
-      }
-      if (id === JSX_RUNTIME_ID) {
-        const cjsCode = fs.readFileSync(
-          path.join(rDir, "cjs/react-jsx-runtime.production.js"),
-          "utf-8",
-        );
-        return `
-import _react from "react";
-var _jsx = {};
-(function(exports, require) {
-${cjsCode}
-})(_jsx, function(id) {
-  if (id === "react") return _react;
-  throw new Error("[react-jsx-runtime-build-shim] Unknown module: " + id);
-});
-export const { Fragment, jsx, jsxs } = _jsx;
-export default _jsx;
-`;
-      }
-      if (id === JSX_DEV_RUNTIME_ID) {
-        const cjsCode = fs.readFileSync(
-          path.join(rDir, "cjs/react-jsx-dev-runtime.production.js"),
-          "utf-8",
-        );
-        return `
-import _react from "react";
-var _jsxd = {};
-(function(exports, require) {
-${cjsCode}
-})(_jsxd, function(id) {
-  if (id === "react") return _react;
-  throw new Error("[react-jsx-dev-runtime-build-shim] Unknown module: " + id);
-});
-export const { Fragment, jsxDEV } = _jsxd;
-export default _jsxd;
-`;
-      }
-      if (id === USSE_SHIM_ID) {
-        const cjsCode = fs.readFileSync(
-          path.join(usseDir, "cjs/use-sync-external-store-shim.production.js"),
-          "utf-8",
-        );
-        return `
-import _react from "react";
-var _usse = {};
-(function(exports, require) {
-${cjsCode}
-})(_usse, function(id) {
-  if (id === "react") return _react;
-  throw new Error("[use-sync-external-store-shim-build] Unknown module: " + id);
-});
-export const { useSyncExternalStore } = _usse;
-export default _usse;
-`;
-      }
-    },
-  };
-}
-
-interface CjsInteropEntry {
-  /** Bare specifiers this entry should intercept (e.g. "util", "node:util"). */
-  specifiers: string[];
-  /** Absolute directory node-stdlib-browser/node_modules resolved this package to. */
-  pkgDir: string;
-  /** Path to the actual CJS entry file, relative to `pkgDir`. */
-  entryFile: string;
-  /** Import specifiers esbuild should leave unbundled (see esbuild's `external`). */
-  external?: string[];
-  /**
-   * When `external` is set, esbuild can no longer prove there are no
-   * externally-caused side effects, so it stops synthesizing named ES exports
-   * and only emits `export default <cjsModuleExports>` instead. List the
-   * module's known `exports.foo = ...` names here to re-destructure them off
-   * that default export (same trick as this file's React CJS shim).
-   */
-  namedExports?: string[];
-  /**
-   * Import specifiers esbuild should resolve to another path instead of its
-   * normal node_modules lookup (see esbuild's `alias`). Used to hand esbuild
-   * the real polyfill path for bare Node builtin specifiers (e.g. "stream")
-   * that its `platform: "browser"` resolver otherwise refuses to resolve, so
-   * the whole dependency tree can be inlined as one clean ESM unit instead of
-   * leaving more broken CJS files for Rollup to mishandle individually.
-   */
-  alias?: Record<string, string>;
-}
-
-function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
-  const resolved = entries.map((e, i) => ({
-    ...e,
-    virtualId: `\0virtual:cjs-interop-build-${i}`,
-    entryPath: path.join(e.pkgDir, e.entryFile),
-  }));
-  const cache = new Map<string, string>();
-
-  return {
-    name: "cjs-interop-build-shim",
-    apply: "build",
-    enforce: "pre",
-    resolveId(id) {
-      for (const e of resolved) {
-        if (
-          e.specifiers.includes(id) ||
-          id === e.pkgDir ||
-          id === `${e.pkgDir}/` ||
-          id === e.entryPath
-        ) {
-          return e.virtualId;
-        }
-      }
-    },
-    async load(id) {
-      const e = resolved.find((r) => r.virtualId === id);
-      if (!e) return;
-      const cached = cache.get(e.virtualId);
-      if (cached) return cached;
-      const viteRequire = createRequire(_require.resolve("vite/package.json"));
-      const esbuild = await import(viteRequire.resolve("esbuild"));
-      const result = await esbuild.build({
-        entryPoints: [e.entryPath],
-        bundle: true,
-        format: "esm",
-        platform: "browser",
-        write: false,
-        target: "es2020",
-        external: e.external,
-        alias: e.alias,
-      });
-      let code = result.outputFiles[0].text;
-
-      if (e.external && e.external.length > 0) {
-        const importLines = e.external
-          .map(
-            (ext, idx) =>
-              `import * as __cjsExternal_${idx} from ${JSON.stringify(ext)};`,
-          )
-          .join("\n");
-        for (const [idx, ext] of e.external.entries()) {
-          code = code.replaceAll(
-            `__require(${JSON.stringify(ext)})`,
-            `__cjsExternal_${idx}`,
-          );
-          code = code.replaceAll(
-            `__require('${ext}')`,
-            `__cjsExternal_${idx}`,
-          );
-        }
-        code = `${importLines}\n${code}`;
-      }
-
-      // Inject process and Buffer globals since @rollup/plugin-inject skips \0virtual: modules
-      const polyfillHeader = [
-        `import __processShim from "process/browser";`,
-        `import { Buffer as __BufferShim } from "buffer";`,
-        `__processShim.browser = true;`,
-        `__processShim.env ??= {};`,
-        `__processShim.version ||= "v20.0.0";`,
-        `globalThis.process ??= __processShim;`,
-        `globalThis.Buffer ??= __BufferShim;`,
-      ].join("\n");
-      code = `${polyfillHeader}\n${code}`;
-
-      if (e.namedExports) {
-        const matches = [...code.matchAll(/export default ([^;]+);/g)];
-        const lastMatch = matches.at(-1);
-        if (!lastMatch) {
-          throw new Error(
-            `[cjs-interop-build-shim] expected an "export default <expr>;" to rewrite for ${e.entryPath}`,
-          );
-        }
-        const before = code.slice(0, lastMatch.index);
-        const after = code.slice(lastMatch.index + lastMatch[0].length);
-        code = `${before}const __shimExports = ${lastMatch[1]};
-export default __shimExports;
-export const { ${e.namedExports.join(", ")} } = __shimExports;
-${after}`;
-      }
-      cache.set(e.virtualId, code);
-      return code;
+      return null;
     },
   };
 }
 
 export default defineConfig({
   plugins: [
-    reactBuildShimPlugin(),
-    cjsInteropBuildShimPlugin([
-      {
-        specifiers: ["util", "node:util"],
-        pkgDir: utilPkgDir,
-        entryFile: "util.js",
-      },
-      {
-        specifiers: ["assert", "node:assert"],
-        pkgDir: assertPkgDir,
-        entryFile: "build/assert.js",
-      },
-      {
-        specifiers: ["@midnight-ntwrk/midnight-js-utils"],
-        pkgDir: path.dirname(midnightJsUtilsCjsEntry),
-        entryFile: path.basename(midnightJsUtilsCjsEntry),
-        // wallet-sdk-address-format is ESM-only and pulls in @midnight-ntwrk/ledger-v8's
-        // .wasm loading, which esbuild can't bundle standalone here — it already
-        // resolves fine as a normal Rollup import elsewhere in the app, so leave it
-        // external and manually re-export midnight-js-utils' known named members
-        // (see the `namedExports` doc comment on CjsInteropEntry for why).
-        external: ["@midnight-ntwrk/wallet-sdk-address-format"],
-        namedExports: [
-          "assertDefined",
-          "assertIsContractAddress",
-          "assertIsHex",
-          "assertUndefined",
-          "fromHex",
-          "isHex",
-          "parseCoinPublicKeyToHex",
-          "parseEncPublicKeyToHex",
-          "parseHex",
-          "toHex",
-          "ttlOneHour",
-        ],
-      },
-      {
-        specifiers: ["crypto", "node:crypto"],
-        pkgDir: cryptoPkgDir,
-        entryFile: "index.js",
-        // Node's `crypto` (randomBytes/pbkdf2Sync/createCipheriv/createDecipheriv/
-        // createHash) genuinely IS used at runtime, to encrypt the private-state
-        // (move/salt) LevelDB store — see @midnight-ntwrk/midnight-js-level-private-state-provider.
-        // crypto-browserify's legacy dependency tree references bare Node builtins
-        // (stream, vm, util, ...) that esbuild can't resolve standalone; alias
-        // them to the same polyfills node-stdlib-browser resolves elsewhere so
-        // esbuild can inline the whole tree as one clean ESM unit.
-        alias: nodeBuiltinAliasesForEsbuild,
-        namedExports: [
-          "randomBytes",
-          "rng",
-          "pseudoRandomBytes",
-          "prng",
-          "createHash",
-          "Hash",
-          "createHmac",
-          "Hmac",
-          "getHashes",
-          "pbkdf2",
-          "pbkdf2Sync",
-          "Cipher",
-          "createCipher",
-          "Cipheriv",
-          "createCipheriv",
-          "Decipher",
-          "createDecipher",
-          "Decipheriv",
-          "createDecipheriv",
-          "getCiphers",
-          "listCiphers",
-          "DiffieHellmanGroup",
-          "createDiffieHellmanGroup",
-          "getDiffieHellman",
-          "createDiffieHellman",
-          "DiffieHellman",
-          "createSign",
-          "Sign",
-          "createVerify",
-          "Verify",
-          "createECDH",
-          "publicEncrypt",
-          "privateEncrypt",
-          "publicDecrypt",
-          "privateDecrypt",
-          "randomFill",
-          "randomFillSync",
-          "createCredentials",
-          "constants",
-          // Not implemented by crypto-browserify at all; the consumer feature-
-          // detects it (`typeof crypto.timingSafeEqual === 'function'`) and
-          // falls back to a manual comparison, so `undefined` here is correct.
-          "timingSafeEqual",
-        ],
-      },
-      {
-        specifiers: ["path", "node:path"],
-        pkgDir: pathPkgDir,
-        entryFile: "index.js",
-      },
-      {
-        specifiers: ["semver"],
-        pkgDir: path.dirname(semverEntry),
-        entryFile: path.basename(semverEntry),
-      },
-    ]),
+    safeCjsWrapperPlugin(),
     onchainRuntimeV3ShimPlugin(onchainRuntimeBrowserPath),
     react(),
     tailwindcss(),
     wasm(),
-    inject({
-      exclude: [/\.wasm(\?.*)?$/, /midnight_onchain_runtime_wasm/],
-      process: "process/browser",
-      Buffer: ["buffer", "Buffer"],
-    }),
   ],
   server: {
-    // Proxy proof-server requests through the dev server so the browser never
-    // fetches http://127.0.0.1:6300 directly.  Lace's service worker intercepts
-    // all fetch calls from the page; requests to 127.0.0.1 from a service worker
-    // context are blocked by Chrome (ERR_FAILED).  Routing via a same-origin path
-    // (/proof-server/...) lets the service worker pass through the request to
-    // Vite's Node.js process, which then proxies it server-side—bypassing all
-    // browser security restrictions on localhost access.
     proxy: {
       "/proof-server": {
         target: "http://127.0.0.1:6300",
@@ -519,7 +93,7 @@ export default defineConfig({
     },
     watch: {
       usePolling: true,
-      interval: 100, // Check for file changes every 100ms
+      interval: 100,
     },
   },
   resolve: {
@@ -531,33 +105,10 @@ export default defineConfig({
     ],
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
-      // Ensure compact-runtime always resolves from app's node_modules regardless
-      // of which workspace package (contract/counter or contract/rps) imports it.
-      // Without this, Rollup can't find compact-runtime when resolving from
-      // pkgs/contract/dist/managed/*/contract/index.js in production builds.
       {
         find: "@midnight-ntwrk/compact-runtime",
         replacement: path.dirname(_crPkgPath),
       },
-      // Node.js stdlib browser polyfills, including `vm`/`stream`/`crypto`.
-      // Nothing in this app's own source imports `vm`/`stream`/`crypto`
-      // directly, but crypto-browserify's legacy CJS dependency tree (hash-base,
-      // cipher-base, ...) does `require("stream").Transform` and
-      // `Transform.call(this)` in its constructors, and `crypto` itself is
-      // needed by @midnight-ntwrk/midnight-js-level-private-state-provider to
-      // encrypt the private-state LevelDB store. Without these three aliased,
-      // the dev server's esbuild-based dep optimizer resolves them to Vite's
-      // default "browser-external" stub (a Proxy that warns and returns
-      // undefined for every property access), which breaks at runtime the
-      // moment createHash/Transform/etc. is actually called (dev only —
-      // nothing else in the app reaches these three polyfills' code paths).
-      // In production, cjsInteropBuildShimPlugin below still intercepts
-      // `crypto` before this alias applies (it runs `enforce: "pre"`), using
-      // its own independent `stream`/`vm` aliasing scoped to that one esbuild
-      // call — so `crypto`'s subtree never reaches Rollup's commonjs plugin
-      // (the thing that actually mishandles it) regardless of what's aliased
-      // here. This `stream`/`vm` alias is therefore inert in production: it's
-      // never resolved because nothing importing them ever reaches Rollup.
       ...Object.entries(stdLibBrowser).map(([find, replacement]) => ({
         find,
         replacement: replacement as string,
@@ -569,30 +120,19 @@ export default defineConfig({
       "@midnight-ntwrk/onchain-runtime",
       "@midnight-ntwrk/onchain-runtime-v3",
     ],
-    include: [
-      "contract",
-      "react",
-      "react-dom",
-      "react-dom/client",
-      "react/jsx-runtime",
-      "react/jsx-dev-runtime",
-      // Force esbuild to pre-bundle and convert these CJS packages to clean ESM
-      "@midnight-ntwrk/midnight-js-utils",
-      "@midnight-ntwrk/ledger-v8",
-      "@midnight-ntwrk/wallet-sdk-address-format",
-    ],
+    include: ["contract", "react", "react-dom", "react-dom/client"],
   },
   build: {
     target: "esnext",
+    rollupOptions: {
+      plugins: [nodePolyfills() as any],
+    },
     commonjsOptions: {
       transformMixedEsModules: true,
-      include: [/node_modules/, /pkgs\//, /\.cjs$/],
-      strictRequires: true,
+      include: [],
     },
   },
   define: {
-    // randombytes/browser.js and other Node.js polyfills use `global`
-    // which is not defined in the browser. Replace with globalThis.
     global: "globalThis",
   },
   worker: {
