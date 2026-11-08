@@ -289,22 +289,6 @@ interface CjsInteropEntry {
   alias?: Record<string, string>;
 }
 
-/**
- * Production-only shim for CJS packages that @rollup/plugin-commonjs only
- * partially transforms.
- *
- * Several unrelated CJS modules reachable from this app (the `util` Node
- * polyfill pulled in by node-stdlib-browser's `vm`/`stream` aliases, the
- * `assert` polyfill, and @midnight-ntwrk/midnight-js-utils's CJS build)
- * exhibit the same failure: some internal helper submodule gets wrapped in an
- * IIFE correctly, but the entry file's top-level `exports.foo = ...` /
- * `module.exports = ...` assignments are left as bare, unbound references —
- * this throws "Uncaught ReferenceError: exports is not defined" in the
- * browser, since ES modules (unlike Node's CJS loader) have no implicit
- * `exports`/`module` binding. Bundling each one with esbuild directly
- * sidesteps the bug: esbuild's CJS→ESM interop handles these module shapes
- * correctly where Rollup's does not.
- */
 function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
   const resolved = entries.map((e, i) => ({
     ...e,
@@ -319,11 +303,6 @@ function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
     enforce: "pre",
     resolveId(id) {
       for (const e of resolved) {
-        // node-stdlib-browser's `resolve.alias` entries (and Vite's own
-        // package resolution) are resolved before this hook runs, so by the
-        // time we see it a bare specifier may already be the resolved
-        // absolute package directory (with or without a trailing slash), or
-        // the resolved entry file itself.
         if (
           e.specifiers.includes(id) ||
           id === e.pkgDir ||
@@ -352,9 +331,31 @@ function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
         alias: e.alias,
       });
       let code = result.outputFiles[0].text;
+
+      // Replace esbuild's runtime __require("<external>") calls with static ESM imports
+      // so Rollup resolves ESM-only externals (like @midnight-ntwrk/wallet-sdk-address-format)
+      // without throwing "Dynamic require of ... is not supported" in production.
+      if (e.external && e.external.length > 0) {
+        const importLines = e.external
+          .map(
+            (ext, idx) =>
+              `import * as __cjsExternal_${idx} from ${JSON.stringify(ext)};`,
+          )
+          .join("\n");
+        for (const [idx, ext] of e.external.entries()) {
+          code = code.replaceAll(
+            `__require(${JSON.stringify(ext)})`,
+            `__cjsExternal_${idx}`,
+          );
+          code = code.replaceAll(
+            `__require('${ext}')`,
+            `__cjsExternal_${idx}`,
+          );
+        }
+        code = `${importLines}\n${code}`;
+      }
+
       if (e.namedExports) {
-        // Match the LAST "export default <expr>;" (there can be trailing
-        // license-comment banners after it, so don't anchor to end-of-file).
         const matches = [...code.matchAll(/export default ([^;]+);/g)];
         const lastMatch = matches.at(-1);
         if (!lastMatch) {
