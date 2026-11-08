@@ -297,7 +297,11 @@ export default defineConfig({
       plugins: [
         nodePolyfills() as any,
         commonjs({
-          include: [/node_modules\/cookie/, /node_modules\/react-router/],
+          include: [
+            /node_modules\/cookie/,
+            /node_modules\/set-cookie-parser/,
+            /node_modules\/react-router/,
+          ],
           transformMixedEsModules: true,
         }),
       ],
