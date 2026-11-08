@@ -274,6 +274,7 @@ export default defineConfig({
     ],
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: /^crypto$/, replacement: path.resolve(__dirname, "./src/shims/crypto.ts") },
       {
         find: "@midnight-ntwrk/compact-runtime",
         replacement: path.dirname(_crPkgPath),
@@ -301,18 +302,10 @@ export default defineConfig({
       plugins: [
         nodePolyfills() as any,
         commonjs({
-          include: [
-            /node_modules\/cookie/,
-            /node_modules\/set-cookie-parser/,
-            /node_modules\/react-router/,
-            /node_modules\/object-inspect/,
-            /node_modules\/cross-fetch/,
-            /node_modules\/fetch-retry/,
-            /node_modules\/buffer/,
-            /node_modules\/@subsquid\/scale-codec/,
-          ],
+          include: [/node_modules/],
+          exclude: [/node_modules\/@midnight-ntwrk/],
           transformMixedEsModules: true,
-        }),
+        })
       ],
     },
     commonjsOptions: {
