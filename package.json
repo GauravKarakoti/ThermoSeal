@@ -15,7 +15,7 @@
     "dev": "bun run --cwd pkgs/app dev",
     "sync-keys-thermoseal": "mkdir -p pkgs/app/public/managed/thermoseal && cp -Rf pkgs/contract/src/managed/thermoseal/keys pkgs/app/public/managed/thermoseal/ && cp -Rf pkgs/contract/src/managed/thermoseal/zkir pkgs/app/public/managed/thermoseal/",
     "build": "bun run --cwd pkgs/contract build && bun run sync-keys-thermoseal && bun run --cwd pkgs/shared build && bun run --cwd pkgs/cli build && bun run --cwd pkgs/app build",
-    "build:app": "bun run --cwd pkgs/contract build && bun run sync-keys-thermoseal && bun run --cwd pkgs/shared build && bun run --cwd pkgs/app build",
+    "build:app": "bun run --cwd pkgs/contract build && bun run --cwd pkgs/shared build && bun run --cwd pkgs/app build",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "bun run --cwd pkgs/contract test",
