@@ -307,6 +307,7 @@ export default defineConfig({
             /node_modules\/react-router/,
             /node_modules\/object-inspect/,
             /node_modules\/cross-fetch/,
+            /node_modules\/fetch-retry/,
           ],
           transformMixedEsModules: true,
         }),
