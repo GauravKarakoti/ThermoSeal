@@ -278,6 +278,10 @@ export default defineConfig({
         find: "@midnight-ntwrk/compact-runtime",
         replacement: path.dirname(_crPkgPath),
       },
+      {
+        find: "cross-fetch",
+        replacement: _require.resolve("cross-fetch/dist/browser-ponyfill.js"),
+      },
       ...Object.entries(stdLibBrowser).map(([find, replacement]) => ({
         find,
         replacement: replacement as string,
@@ -302,6 +306,7 @@ export default defineConfig({
             /node_modules\/set-cookie-parser/,
             /node_modules\/react-router/,
             /node_modules\/object-inspect/,
+            /node_modules\/cross-fetch/,
           ],
           transformMixedEsModules: true,
         }),
