@@ -40,17 +40,13 @@ function onchainRuntimeV3ShimPlugin(onchainRuntimePath: string): Plugin {
   };
 }
 
-/**
- * Robust CJS-to-ESM Wrapper Plugin for Production Build
- * Intercepts any module containing bare `exports.` or `module.exports`
- * and wraps it safely so Rollup never throws "ReferenceError: exports is not defined".
- */
 function safeCjsWrapperPlugin(): Plugin {
   return {
     name: "safe-cjs-wrapper",
     transform(code, id) {
       if (
-        (id.includes("node_modules") || id.includes("pkgs/")) &&
+        (id.includes("@midnight-ntwrk") || id.includes("pkgs/")) &&
+        !id.includes("cross-fetch") &&
         (code.includes("exports.") || code.includes("module.exports")) &&
         !code.includes("export default") &&
         !code.includes("export const")
