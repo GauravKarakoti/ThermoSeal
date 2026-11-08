@@ -243,10 +243,24 @@ function safeCjsWrapperPlugin(): Plugin {
   };
 }
 
+function cryptoShimPlugin(): Plugin {
+  const shim = path.resolve(__dirname, "./src/shims/crypto.ts");
+  return {
+    name: "crypto-shim",
+    enforce: "pre",
+    resolveId(id, importer) {
+      if (id === "crypto" && importer?.includes("@midnight-ntwrk")) {
+        return shim;
+      }
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     reactBuildShimPlugin(),
     safeCjsWrapperPlugin(),
+    cryptoShimPlugin(),
     onchainRuntimeV3ShimPlugin(onchainRuntimeBrowserPath),
     react(),
     tailwindcss(),
@@ -274,7 +288,6 @@ export default defineConfig({
     ],
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
-      { find: /^crypto$/, replacement: path.resolve(__dirname, "./src/shims/crypto.ts") },
       {
         find: "@midnight-ntwrk/compact-runtime",
         replacement: path.dirname(_crPkgPath),

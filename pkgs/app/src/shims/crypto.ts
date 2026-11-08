@@ -1,9 +1,9 @@
-import crypto from "crypto-browserify";
+import cb from "crypto-browserify";
 
 export const {
   createHash, createHmac, randomBytes, pbkdf2Sync,
   createCipheriv, createDecipheriv,
-} = crypto as any;
+} = cb as any;
 
 export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -12,4 +12,4 @@ export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-export default { ...(crypto as any), timingSafeEqual };
+export default { ...(cb as any), timingSafeEqual };
