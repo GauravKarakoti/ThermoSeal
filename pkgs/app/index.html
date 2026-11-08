@@ -8,6 +8,22 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.global = window;
+      window.process = window.process || {
+        env: {},
+        browser: true,
+        version: "v18.0.0",
+        versions: {},
+        platform: "browser",
+        argv: [],
+        cwd: function () { return "/"; },
+        nextTick: function (fn) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          queueMicrotask(function () { fn.apply(null, args); });
+        },
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -7,6 +7,8 @@ import { NetworkProvider } from "./contexts/NetworkContext";
 import { WalletProvider } from "./contexts/WalletContext";
 import "./css/index.css";
 import "./shims/process-init";
+import { Buffer } from "buffer";
+(globalThis as any).Buffer ??= Buffer;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

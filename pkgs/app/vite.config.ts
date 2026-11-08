@@ -216,6 +216,7 @@ export default _usse;
 function safeCjsWrapperPlugin(): Plugin {
   return {
     name: "safe-cjs-wrapper",
+    apply: "build",
     transform(code, id) {
       if (
         (id.includes("@midnight-ntwrk") || id.includes("pkgs/")) &&
@@ -304,6 +305,7 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
+    esbuildOptions: { define: { global: "globalThis" } },
     exclude: [
       "@midnight-ntwrk/onchain-runtime",
       "@midnight-ntwrk/onchain-runtime-v3",
@@ -333,6 +335,7 @@ export default defineConfig({
   },
   define: {
     global: "globalThis",
+    "process.env": {},
   },
   worker: {
     format: "es",

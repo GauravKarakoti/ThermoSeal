@@ -68,9 +68,21 @@ function detectConnectorAPI(): Promise<DAppConnectorAPI> {
           globalThis.window as unknown as Record<string, unknown>
         )?.midnight as Record<string, unknown> | undefined;
         if (!midnight) return null;
+
+        // Prioritize 1AM Wallet
         if (midnight["1AM"]) return midnight["1AM"] as DAppConnectorAPI;
         if (midnight.oneAM) return midnight.oneAM as DAppConnectorAPI;
-        return null;
+
+        // Fallback to any compatible Midnight DApp connector
+        if (midnight.mnLace) return midnight.mnLace as DAppConnectorAPI;
+        return (
+          (Object.values(midnight).find(
+            (v) =>
+              typeof (v as Record<string, unknown>)?.enable === "function" ||
+              typeof (v as Record<string, unknown>)?.connect === "function" ||
+              typeof (v as Record<string, unknown>)?.apiVersion === "string",
+          ) as DAppConnectorAPI | undefined) ?? null
+        );
       }),
       filter((api): api is DAppConnectorAPI => api !== null),
       take(1),
