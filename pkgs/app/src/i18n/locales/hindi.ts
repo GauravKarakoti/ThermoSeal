@@ -55,6 +55,11 @@ const hindi = {
     join: "अनुबंध लोड करें",
     joining: "कनेक्ट हो रहा है...",
     error: "त्रुटि",
+    commercial: {
+      tractionBadge: "लाइव प्रोडक्शन पायलट",
+      activeUsersLabel: "सक्रिय लॉजिस्टिक्स पार्टनर",
+      commercialReadiness: "व्यावसायिक व्यवहार्यता और वास्तविक दुनिया का ट्रैक्शन",
+    },
     streams: {
       temp: "तापमान (°C)",
       humidity: "आर्द्रता (% RH)",

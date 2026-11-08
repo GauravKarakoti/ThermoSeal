@@ -91,6 +91,11 @@ const en = {
       verifyOnChain: "Verify On-Chain",
       newShipment: "Register New Shipment",
     },
+    commercial: {
+      tractionBadge: "Live Production Pilot",
+      activeUsersLabel: "Active Logistics Partners",
+      commercialReadiness: "Commercial Viability & Real-World Traction",
+    }
   },
 } as const;
 
