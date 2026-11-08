@@ -6,6 +6,7 @@ import { Toaster } from "./components/ui/sonner";
 import { NetworkProvider } from "./contexts/NetworkContext";
 import { WalletProvider } from "./contexts/WalletContext";
 import "./css/index.css";
+import "./shims/process-init";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

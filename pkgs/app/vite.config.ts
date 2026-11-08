@@ -8,6 +8,7 @@ import path from "path";
 import { defineConfig, type Plugin } from "vite";
 import wasm from "vite-plugin-wasm";
 import commonjs from "@rollup/plugin-commonjs";
+import inject from "@rollup/plugin-inject";
 
 const _require = createRequire(import.meta.url);
 
@@ -318,7 +319,11 @@ export default defineConfig({
           include: [/node_modules/],
           exclude: [/node_modules\/@midnight-ntwrk/],
           transformMixedEsModules: true,
-        })
+        }),
+        inject({
+          process: "process/browser",
+          Buffer: ["buffer", "Buffer"],
+        }),
       ],
     },
     commonjsOptions: {
