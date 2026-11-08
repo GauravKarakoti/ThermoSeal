@@ -1,5 +1,6 @@
 import {
   type CoinPublicKey,
+  CostModel,
   type EncPublicKey,
   type FinalizedTransaction,
   Transaction as LedgerTransaction,
@@ -10,13 +11,12 @@ import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
-import {
-  createProofProvider,
-  type KeyMaterialProvider,
-  type MidnightProvider,
-  type ProofProvider,
-  type UnboundTransaction,
-  type WalletProvider,
+import type {
+  KeyMaterialProvider,
+  MidnightProvider,
+  ProofProvider,
+  UnboundTransaction,
+  WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
 import { fromHex, toHex } from "@midnight-ntwrk/midnight-js-utils";
 import type { NetworkId } from "@/utils/networks";
@@ -137,10 +137,9 @@ export function createThermoSealProviders(
               km: KeyMaterialProvider,
             ) => Promise<ProvingProvider>
           )(keyMaterial);
-          console.log("[ThermoSeal] Proving via 1AM Wallet ProvingProvider");
-          return await createProofProvider(provingProvider).proveTx(
-            unprovenTx,
-            proveTxConfig,
+          return await unprovenTx.prove(
+            provingProvider,
+            CostModel.initialCostModel(),
           );
         } catch (e) {
           console.warn(
@@ -149,7 +148,6 @@ export function createThermoSealProviders(
           );
         }
       }
-      console.log("[ThermoSeal] Proving via HTTP prover:", proverServerUri);
       return fallbackHttpProver.proveTx(unprovenTx, proveTxConfig);
     },
   };

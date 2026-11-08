@@ -487,11 +487,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
     wasm(),
-    inject({
-      exclude: [/\.wasm(\?.*)?$/, /midnight_onchain_runtime_wasm/],
-      process: "process/browser",
-      Buffer: ["buffer", "Buffer"],
-    }),
+    {
+      ...inject({
+        exclude: [/\.wasm(\?.*)?$/, /midnight_onchain_runtime_wasm/],
+        process: "process/browser",
+        Buffer: ["buffer", "Buffer"],
+      }),
+      enforce: "post",
+    },
   ],
   server: {
     // Proxy proof-server requests through the dev server so the browser never
@@ -593,7 +596,7 @@ export default defineConfig({
     target: "esnext",
     commonjsOptions: {
       transformMixedEsModules: true,
-      include: [/node_modules/],
+      include: [/node_modules/, /pkgs\//, /\.cjs$/],
       strictRequires: true,
     },
   },
