@@ -565,38 +565,22 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    // Exclude packages that esbuild cannot handle:
-    // - onchain-runtime-v3: ESM with top-level await for WASM initialization
-    // - onchain-runtime: legacy name (kept for safety)
-    // compact-runtime@0.15.0 IS pre-bundled by esbuild. Its import of
-    // onchain-runtime-v3 is marked external (excluded above), so esbuild
-    // doesn't try to process TLA. The shim plugin handles the import at
-    // request time, serving the browser WASM entry as native ESM.
     exclude: [
       "@midnight-ntwrk/onchain-runtime",
       "@midnight-ntwrk/onchain-runtime-v3",
     ],
-    // Pre-bundle the contract workspace package so esbuild can transform the
-    // compiled Compact contract (managed/counter/contract/index.cjs) from CJS
-    // to ESM. Without this, Vite serves index.cjs raw and `require()` fails in
-    // the browser. compact-runtime is excluded above so esbuild marks it as an
-    // external import — handled by our virtual shim plugin at runtime.
     include: [
       "contract",
-      // Explicitly pre-bundle React and react-dom/client so esbuild can split
-      // them into the shared chunk (chunk-OJL3457Z.js). needsInterop:true on
-      // all of these tells Vite to generate named-export proxy modules.
       "react",
       "react-dom",
       "react-dom/client",
       "react/jsx-runtime",
       "react/jsx-dev-runtime",
+      // Force esbuild to pre-bundle and convert these CJS packages to clean ESM
+      "@midnight-ntwrk/midnight-js-utils",
+      "@midnight-ntwrk/ledger-v8",
+      "@midnight-ntwrk/wallet-sdk-address-format",
     ],
-  },
-  define: {
-    // randombytes/browser.js and other Node.js polyfills use `global`
-    // which is not defined in the browser. Replace with globalThis.
-    global: "globalThis",
   },
   build: {
     target: "esnext",
@@ -605,6 +589,11 @@ export default defineConfig({
       include: [/node_modules/, /pkgs\//, /\.cjs$/],
       strictRequires: true,
     },
+  },
+  define: {
+    // randombytes/browser.js and other Node.js polyfills use `global`
+    // which is not defined in the browser. Replace with globalThis.
+    global: "globalThis",
   },
   worker: {
     format: "es",
