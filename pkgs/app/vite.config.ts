@@ -332,9 +332,6 @@ function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
       });
       let code = result.outputFiles[0].text;
 
-      // Replace esbuild's runtime __require("<external>") calls with static ESM imports
-      // so Rollup resolves ESM-only externals (like @midnight-ntwrk/wallet-sdk-address-format)
-      // without throwing "Dynamic require of ... is not supported" in production.
       if (e.external && e.external.length > 0) {
         const importLines = e.external
           .map(
@@ -354,6 +351,18 @@ function cjsInteropBuildShimPlugin(entries: CjsInteropEntry[]): Plugin {
         }
         code = `${importLines}\n${code}`;
       }
+
+      // Inject process and Buffer globals since @rollup/plugin-inject skips \0virtual: modules
+      const polyfillHeader = [
+        `import __processShim from "process/browser";`,
+        `import { Buffer as __BufferShim } from "buffer";`,
+        `__processShim.browser = true;`,
+        `__processShim.env ??= {};`,
+        `__processShim.version ||= "v20.0.0";`,
+        `globalThis.process ??= __processShim;`,
+        `globalThis.Buffer ??= __BufferShim;`,
+      ].join("\n");
+      code = `${polyfillHeader}\n${code}`;
 
       if (e.namedExports) {
         const matches = [...code.matchAll(/export default ([^;]+);/g)];
@@ -487,14 +496,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     wasm(),
-    {
-      ...inject({
-        exclude: [/\.wasm(\?.*)?$/, /midnight_onchain_runtime_wasm/],
-        process: "process/browser",
-        Buffer: ["buffer", "Buffer"],
-      }),
-      enforce: "post",
-    },
+    inject({
+      exclude: [/\.wasm(\?.*)?$/, /midnight_onchain_runtime_wasm/],
+      process: "process/browser",
+      Buffer: ["buffer", "Buffer"],
+    }),
   ],
   server: {
     // Proxy proof-server requests through the dev server so the browser never
