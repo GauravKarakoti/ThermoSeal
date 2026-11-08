@@ -7,6 +7,7 @@ import stdLibBrowser from "node-stdlib-browser";
 import path from "path";
 import { defineConfig, type Plugin } from "vite";
 import wasm from "vite-plugin-wasm";
+import commonjs from "@rollup/plugin-commonjs";
 
 const _require = createRequire(import.meta.url);
 
@@ -293,7 +294,13 @@ export default defineConfig({
   build: {
     target: "esnext",
     rollupOptions: {
-      plugins: [nodePolyfills() as any],
+      plugins: [
+        nodePolyfills() as any,
+        commonjs({
+          include: [/node_modules\/cookie/, /node_modules\/react-router/],
+          transformMixedEsModules: true,
+        }),
+      ],
     },
     commonjsOptions: {
       transformMixedEsModules: true,
