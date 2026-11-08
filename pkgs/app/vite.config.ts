@@ -301,6 +301,7 @@ export default defineConfig({
             /node_modules\/cookie/,
             /node_modules\/set-cookie-parser/,
             /node_modules\/react-router/,
+            /node_modules\/object-inspect/,
           ],
           transformMixedEsModules: true,
         }),
